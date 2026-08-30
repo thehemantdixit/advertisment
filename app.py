@@ -1017,12 +1017,20 @@ def main():
     # ---- Sidebar: connections + engine + running spec, not the brief itself ----
     with st.sidebar:
         env_gemini = os.getenv("GEMINI_API_KEY", "")
-        if not env_gemini and hasattr(st, "secrets") and "GEMINI_API_KEY" in st.secrets:
-            env_gemini = st.secrets["GEMINI_API_KEY"]
+        if not env_gemini:
+            try:
+                if hasattr(st, "secrets") and "GEMINI_API_KEY" in st.secrets:
+                    env_gemini = st.secrets["GEMINI_API_KEY"]
+            except Exception:
+                pass
 
         env_hf = os.getenv("HF_TOKEN", "") or os.getenv("HF_API_KEY", "")
-        if not env_hf and hasattr(st, "secrets") and "HF_TOKEN" in st.secrets:
-            env_hf = st.secrets["HF_TOKEN"]
+        if not env_hf:
+            try:
+                if hasattr(st, "secrets") and "HF_TOKEN" in st.secrets:
+                    env_hf = st.secrets["HF_TOKEN"]
+            except Exception:
+                pass
 
         st.markdown("**Connections**")
         with st.expander("API credentials", expanded=not bool(env_gemini)):
