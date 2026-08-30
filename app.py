@@ -1017,18 +1017,32 @@ def main():
     # ---- Sidebar: connections + engine + running spec, not the brief itself ----
     with st.sidebar:
         env_gemini = os.getenv("GEMINI_API_KEY", "")
+        if not env_gemini and hasattr(st, "secrets") and "GEMINI_API_KEY" in st.secrets:
+            env_gemini = st.secrets["GEMINI_API_KEY"]
+
         env_hf = os.getenv("HF_TOKEN", "") or os.getenv("HF_API_KEY", "")
+        if not env_hf and hasattr(st, "secrets") and "HF_TOKEN" in st.secrets:
+            env_hf = st.secrets["HF_TOKEN"]
 
         st.markdown("**Connections**")
         with st.expander("API credentials", expanded=not bool(env_gemini)):
-            gemini_api_key = st.text_input(
-                "Gemini API Key", value=env_gemini, type="password",
+            user_gemini_key = st.text_input(
+                "Gemini API Key", type="password",
+                placeholder="Enter API key..." if not env_gemini else "🔒 Using server key (Enter to override)",
                 help="Free key from https://aistudio.google.com/app/apikey"
             )
-            hf_token = st.text_input(
-                "Hugging Face Token (optional)", value=env_hf, type="password",
+            gemini_api_key = user_gemini_key if user_gemini_key.strip() else env_gemini
+            if env_gemini and not user_gemini_key:
+                st.caption("🔒 Gemini key active from environment")
+
+            user_hf_token = st.text_input(
+                "Hugging Face Token (optional)", type="password",
+                placeholder="Enter HF token..." if not env_hf else "🔒 Using server token (Enter to override)",
                 help="Free token from https://huggingface.co/settings/tokens (for FLUX.1)"
             )
+            hf_token = user_hf_token if user_hf_token.strip() else env_hf
+            if env_hf and not user_hf_token:
+                st.caption("🔒 HF token active from environment")
 
         st.divider()
         st.markdown("**Image engine**")
