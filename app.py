@@ -3,6 +3,7 @@ import io
 import json
 import base64
 import random
+import time
 import datetime as dt
 import requests
 import streamlit as st
@@ -693,25 +694,40 @@ Brand Tone / Vibe: {brand_tone}
 CTA Focus / Goal: {cta_focus}
 """
 
-    candidate_models = ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
+    candidate_models = [
+        "gemini-2.5-flash",
+        "gemini-2.0-flash",
+        "gemini-1.5-flash",
+        "gemini-1.5-pro",
+    ]
     last_exception = None
+    max_retries = 3
 
     for model_name in candidate_models:
-        try:
-            response = client.models.generate_content(
-                model=model_name,
-                contents=[system_prompt, user_prompt],
-                config=genai_types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    temperature=0.7,
+        for attempt in range(max_retries):
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=[system_prompt, user_prompt],
+                    config=genai_types.GenerateContentConfig(
+                        response_mime_type="application/json",
+                        temperature=0.7,
+                    )
                 )
-            )
-            return json.loads(response.text)
-        except Exception as e:
-            last_exception = e
-            if "404" in str(e) or "NOT_FOUND" in str(e):
-                continue
-            raise e
+                return json.loads(response.text)
+            except Exception as e:
+                last_exception = e
+                err_str = str(e)
+                if "404" in err_str or "NOT_FOUND" in err_str:
+                    break  # skip to next model
+                if "503" in err_str or "UNAVAILABLE" in err_str or "overloaded" in err_str.lower():
+                    if attempt < max_retries - 1:
+                        wait = (attempt + 1) * 2  # 2s, 4s backoff
+                        time.sleep(wait)
+                        continue
+                    else:
+                        break  # try next model after exhausting retries
+                raise e
 
     if last_exception:
         raise last_exception
@@ -1014,23 +1030,31 @@ def main():
     <div class="ticket-rule"></div>
     """, unsafe_allow_html=True)
 
-    # ---- Sidebar: connections + engine + running spec, not the brief itself ----
+    # ---- Load API keys: Streamlit Secrets (cloud) > env vars (local) ----
+    def _get_secret(key: str, fallback_keys: list[str] | None = None) -> str:
+        """Fetch from st.secrets first, then os.environ."""
+        try:
+            return st.secrets[key]
+        except (KeyError, FileNotFoundError):
+            pass
+        val = os.getenv(key, "")
+        if val:
+            return val
+        for fk in (fallback_keys or []):
+            try:
+                return st.secrets[fk]
+            except (KeyError, FileNotFoundError):
+                pass
+            val = os.getenv(fk, "")
+            if val:
+                return val
+        return ""
+
+    gemini_api_key = _get_secret("GEMINI_API_KEY")
+    hf_token = _get_secret("HF_TOKEN", ["HF_API_KEY"])
+
+    # ---- Sidebar: engine selector + running spec ----
     with st.sidebar:
-        env_gemini = os.getenv("GEMINI_API_KEY", "")
-        env_hf = os.getenv("HF_TOKEN", "") or os.getenv("HF_API_KEY", "")
-
-        st.markdown("**Connections**")
-        with st.expander("API credentials", expanded=not bool(env_gemini)):
-            gemini_api_key = st.text_input(
-                "Gemini API Key", value=env_gemini, type="password",
-                help="Free key from https://aistudio.google.com/app/apikey"
-            )
-            hf_token = st.text_input(
-                "Hugging Face Token (optional)", value=env_hf, type="password",
-                help="Free token from https://huggingface.co/settings/tokens (for FLUX.1)"
-            )
-
-        st.divider()
         st.markdown("**Image engine**")
         preferred_engine = st.selectbox(
             "Engine", ["Gemini Imagen 3 (Default)", "Pollinations AI (FLUX.1)",
@@ -1045,12 +1069,32 @@ def main():
             st.caption(f"Emotion: {ad_sb.get('target_emotion','—')}")
             st.caption(f"Source: {st.session_state.get('img_source','—')}")
 
+        st.divider()
+        if gemini_api_key:
+            st.success("Gemini API — connected", icon="✅")
+        else:
+            st.error("Gemini API — not configured", icon="❌")
+        if hf_token:
+            st.success("Hugging Face — connected", icon="✅")
+        else:
+            st.caption("Hugging Face — not set (optional)")
+
     if not gemini_api_key:
-        st.warning("Add a **Gemini API key** under Connections in the sidebar to open the desk.")
+        st.warning("**Gemini API key** is not configured. Set it in Streamlit Secrets or a `.env` file.")
         st.markdown("""
-        1. Grab a free key from [Google AI Studio](https://aistudio.google.com/app/apikey).
-        2. Paste it in the sidebar, or set `GEMINI_API_KEY` in your `.env` file.
-        3. Gemini Imagen 3 handles the product visual by default — Pollinations and Hugging Face are drop-in alternates.
+        **For Streamlit Cloud** — add this in your app's *Settings → Secrets*:
+        ```toml
+        GEMINI_API_KEY = "your_key_here"
+        HF_TOKEN = "your_hf_token_here"  # optional
+        ```
+
+        **For local development** — create a `.env` file in the project root:
+        ```
+        GEMINI_API_KEY=your_key_here
+        HF_TOKEN=your_hf_token_here
+        ```
+
+        Get a free Gemini key at [Google AI Studio](https://aistudio.google.com/app/apikey).
         """)
         return
 
