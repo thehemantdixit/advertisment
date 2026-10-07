@@ -696,11 +696,10 @@ CTA Focus / Goal: {cta_focus}
 
     candidate_models = [
         "gemini-1.5-flash",
-        "gemini-2.0-flash-exp",
-        "gemini-1.5-flash-8b",
+        "gemini-1.5-flash-latest"
     ]
     last_exception = None
-    max_retries = 3
+    max_retries = 5
 
     for model_name in candidate_models:
         for attempt in range(max_retries):
