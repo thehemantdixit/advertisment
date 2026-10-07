@@ -703,48 +703,62 @@ CTA Focus / Goal: {cta_focus}
 
     combined = f"{system_prompt}\n\n{user_prompt}"
 
-    # Use REST API directly — avoids SDK v1beta model-name mismatches entirely
+    # Try v1beta first (supports responseMimeType JSON mode), fall back to v1
     candidate_models = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-2.0-flash-lite"]
-    last_exception = None
+    last_error_msg = "Unknown error"
     max_retries = 3
 
     for model_name in candidate_models:
-        url = (
-            f"https://generativelanguage.googleapis.com/v1/models/"
-            f"{model_name}:generateContent?key={api_key}"
-        )
-        payload = {
-            "contents": [{"parts": [{"text": combined}]}],
-            "generationConfig": {"temperature": 0.7, "responseMimeType": "application/json"}
-        }
-        for attempt in range(max_retries):
-            try:
-                resp = requests.post(url, json=payload, timeout=30)
-                if resp.status_code == 404:
-                    break  # model not available, try next
-                if resp.status_code == 503:
-                    if attempt < max_retries - 1:
-                        time.sleep((attempt + 1) * 3)
-                        continue
-                    else:
-                        break  # exhausted retries for this model
-                resp.raise_for_status()
-                data = resp.json()
-                text = data["candidates"][0]["content"]["parts"][0]["text"]
-                return json.loads(text)
-            except (json.JSONDecodeError, KeyError) as e:
-                last_exception = e
-                break
-            except requests.RequestException as e:
-                last_exception = e
-                if attempt < max_retries - 1:
-                    time.sleep(2)
-                    continue
-                break
+        for api_ver in ["v1beta", "v1"]:
+            url = (
+                f"https://generativelanguage.googleapis.com/{api_ver}/models/"
+                f"{model_name}:generateContent?key={api_key}"
+            )
+            payload = {
+                "contents": [{"parts": [{"text": combined}]}],
+                "generationConfig": {"temperature": 0.7}
+            }
+            if api_ver == "v1beta":
+                payload["generationConfig"]["responseMimeType"] = "application/json"
 
-    if last_exception:
-        raise last_exception
-    raise RuntimeError("All Gemini models failed. Please try again in a moment.")
+            for attempt in range(max_retries):
+                try:
+                    resp = requests.post(url, json=payload, timeout=30)
+                    if resp.status_code == 404:
+                        last_error_msg = f"{model_name}/{api_ver}: 404 Not Found"
+                        break  # try next api_ver / model
+                    if resp.status_code in (429, 503):
+                        last_error_msg = f"{model_name}/{api_ver}: HTTP {resp.status_code} overloaded"
+                        if attempt < max_retries - 1:
+                            time.sleep((attempt + 1) * 3)
+                            continue
+                        else:
+                            break
+                    if not resp.ok:
+                        last_error_msg = f"{model_name}/{api_ver}: HTTP {resp.status_code} — {resp.text[:300]}"
+                        break
+                    data = resp.json()
+                    raw_text = data["candidates"][0]["content"]["parts"][0]["text"]
+                    try:
+                        return json.loads(raw_text)
+                    except json.JSONDecodeError:
+                        import re
+                        m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", raw_text, re.DOTALL)
+                        if m:
+                            return json.loads(m.group(1))
+                        last_error_msg = f"{model_name}/{api_ver}: Could not parse JSON from response"
+                        break
+                except (KeyError, IndexError) as e:
+                    last_error_msg = f"{model_name}/{api_ver}: Unexpected response shape — {e}"
+                    break
+                except requests.RequestException as e:
+                    last_error_msg = f"{model_name}/{api_ver}: Request failed — {e}"
+                    if attempt < max_retries - 1:
+                        time.sleep(2)
+                        continue
+                    break
+
+    raise RuntimeError(f"All Gemini models failed. Last error: {last_error_msg}")
 
 
 def _load_font(size: int, bold: bool = True):
