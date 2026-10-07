@@ -552,7 +552,7 @@ def generate_gemini_imagen(client, prompt: str, aspect_ratio_str: str = "1:1") -
     else:
         from google.genai import types as genai_types
 
-    models_to_try = ["imagen-3.0-generate-002", "imagen-3.0-fast-generate-001"]
+    models_to_try = ["imagen-4.0-generate-preview-06-06", "imagen-3.0-generate-002", "imagen-3.0-fast-generate-001"]
     for m in models_to_try:
         try:
             res = client.models.generate_images(
@@ -704,7 +704,13 @@ CTA Focus / Goal: {cta_focus}
     combined = f"{system_prompt}\n\n{user_prompt}"
 
     # Try v1beta first (supports responseMimeType JSON mode), fall back to v1
-    candidate_models = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-2.0-flash-lite"]
+    candidate_models = [
+        "gemini-3.8-flash",
+        "gemini-3.7-flash",
+        "gemini-3.6-flash",
+        "gemini-2.5-flash",
+        "gemini-2.5-flash-lite",
+    ]
     last_error_msg = "Unknown error"
     max_retries = 3
 
