@@ -695,8 +695,7 @@ CTA Focus / Goal: {cta_focus}
 """
 
     candidate_models = [
-        "gemini-1.5-flash",
-        "gemini-1.5-flash-latest"
+        "gemini-1.5-flash"
     ]
     last_exception = None
     max_retries = 5
@@ -1146,7 +1145,11 @@ def main():
                 )
                 st.session_state.ad_package = ad_data
             except Exception as e:
-                st.error(f"Failed to generate ad campaign with Gemini: {e}")
+                err_str = str(e).upper()
+                if "503" in err_str or "UNAVAILABLE" in err_str or "OVERLOADED" in err_str:
+                    st.error("⚠️ **Google's Gemini API is currently overloaded (High Demand).** Google's free tier is busy right now. Please wait 10-15 seconds and click **Run the proof** again.")
+                else:
+                    st.error(f"Failed to generate ad campaign with Gemini: {e}")
                 return
 
         w, h = DIMS.get(platform, (800, 800))
