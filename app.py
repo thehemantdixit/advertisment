@@ -1166,6 +1166,25 @@ def main():
     target_audience = audience_custom if audience_preset == "Custom / Other" else audience_preset
 
     if generate_btn:
+        # --- Quick API key validation before doing anything ---
+        test_url = f"https://generativelanguage.googleapis.com/v1beta/models?key={gemini_api_key}"
+        try:
+            test_resp = requests.get(test_url, timeout=10)
+            if test_resp.status_code == 400:
+                st.error("❌ **Invalid API key.** The Gemini API key in your Streamlit Secrets is malformed. Please check it has no extra spaces or quotes.")
+                return
+            if test_resp.status_code == 403:
+                st.error("❌ **API key not authorized.** Make sure the Gemini API is enabled for this key at [aistudio.google.com](https://aistudio.google.com/app/apikey).")
+                return
+            if not test_resp.ok:
+                st.error(f"❌ **API key check failed** (HTTP {test_resp.status_code}): {test_resp.text[:200]}")
+                return
+            # Show available flash models for debug
+            available = [m["name"] for m in test_resp.json().get("models", []) if "flash" in m["name"].lower()]
+            st.caption(f"🔑 API key OK — available flash models: {', '.join(available[:6]) or 'none found'}")
+        except Exception as e:
+            st.warning(f"Could not validate API key: {e}. Proceeding anyway…")
+
         with st.spinner("Drafting copy, palette and image brief with Gemini…"):
             client = get_gemini_client(gemini_api_key)
             if not client:
@@ -1179,10 +1198,11 @@ def main():
             except Exception as e:
                 err_str = str(e).upper()
                 if "503" in err_str or "UNAVAILABLE" in err_str or "OVERLOADED" in err_str:
-                    st.error("⚠️ **Google's Gemini API is currently overloaded (High Demand).** Google's free tier is busy right now. Please wait 10-15 seconds and click **Run the proof** again.")
+                    st.error("⚠️ **Google's Gemini API is currently overloaded (High Demand).** Please wait 10-15 seconds and click **Run the proof** again.")
                 else:
                     st.error(f"Failed to generate ad campaign with Gemini: {e}")
                 return
+
 
         w, h = DIMS.get(platform, (800, 800))
         colors = [
