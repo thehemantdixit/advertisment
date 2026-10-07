@@ -695,10 +695,9 @@ CTA Focus / Goal: {cta_focus}
 """
 
     candidate_models = [
-        "gemini-2.5-flash",
-        "gemini-2.0-flash",
         "gemini-1.5-flash",
-        "gemini-1.5-pro",
+        "gemini-2.0-flash-exp",
+        "gemini-1.5-flash-8b",
     ]
     last_exception = None
     max_retries = 3
@@ -1108,11 +1107,10 @@ def main():
     with st.form("brief_form"):
         col_a, col_b = st.columns([1.3, 1])
         with col_a:
-            product_name = st.text_input("Product / service name", value="LuminoSound Pro")
+            product_name = st.text_input("Product / service name", placeholder="e.g. LuminoSound Pro")
             product_desc = st.text_area(
                 "Description & key features",
-                value="Wireless noise-canceling headphones with 40-hour battery life, spatial audio, "
-                      "hyper-comfortable memory foam earcups, and sleek matte finish.",
+                placeholder="e.g. Wireless noise-canceling headphones with 40-hour battery life, spatial audio, hyper-comfortable memory foam earcups, and sleek matte finish.",
                 height=100
             )
             cta_focus = st.selectbox(
@@ -1127,7 +1125,7 @@ def main():
                  "Corporate Executives", "Gamers & Streamers", "Custom / Other"]
             )
             audience_custom = st.text_input("Custom audience (used if 'Custom / Other' above)",
-                                             value="Remote workers & digital nomads")
+                                             placeholder="e.g. Remote workers & digital nomads")
             platform = st.selectbox("Ad format / platform", list(DIMS.keys()))
             brand_tone = st.selectbox(
                 "Brand style / tone",
