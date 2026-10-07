@@ -703,19 +703,25 @@ CTA Focus / Goal: {cta_focus}
 
     combined = f"{system_prompt}\n\n{user_prompt}"
 
-    # Try v1beta first (supports responseMimeType JSON mode), fall back to v1
-    candidate_models = [
-        "gemini-3.8-flash",
-        "gemini-3.7-flash",
-        "gemini-3.6-flash",
-        "gemini-2.5-flash",
-        "gemini-2.5-flash-lite",
-    ]
+    # Fetch available models dynamically to avoid 404s
     last_error_msg = "Unknown error"
-    max_retries = 3
+    try:
+        models_resp = requests.get(f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}", timeout=10)
+        if models_resp.ok:
+            available = [m["name"].split("/")[-1] for m in models_resp.json().get("models", []) if "flash" in m["name"].lower()]
+            candidate_models = available if available else ["gemini-2.5-flash", "gemini-flash-latest"]
+        else:
+            candidate_models = ["gemini-2.5-flash", "gemini-flash-latest"]
+    except:
+        candidate_models = ["gemini-2.5-flash", "gemini-flash-latest"]
+
+    max_retries = 2 # Reduced to fail faster if overloaded
+
+    # Sort candidates to prefer non-lite, non-preview models first
+    candidate_models = sorted(candidate_models, key=lambda x: (1 if 'lite' in x else 0, 1 if 'preview' in x else 0))
 
     for model_name in candidate_models:
-        for api_ver in ["v1beta", "v1"]:
+        for api_ver in ["v1alpha", "v1beta", "v1"]:
             url = (
                 f"https://generativelanguage.googleapis.com/{api_ver}/models/"
                 f"{model_name}:generateContent?key={api_key}"
@@ -724,19 +730,19 @@ CTA Focus / Goal: {cta_focus}
                 "contents": [{"parts": [{"text": combined}]}],
                 "generationConfig": {"temperature": 0.7}
             }
-            if api_ver == "v1beta":
+            if api_ver in ["v1beta", "v1alpha"]:
                 payload["generationConfig"]["responseMimeType"] = "application/json"
 
             for attempt in range(max_retries):
                 try:
-                    resp = requests.post(url, json=payload, timeout=30)
+                    resp = requests.post(url, json=payload, timeout=20)
                     if resp.status_code == 404:
                         last_error_msg = f"{model_name}/{api_ver}: 404 Not Found"
                         break  # try next api_ver / model
                     if resp.status_code in (429, 503):
                         last_error_msg = f"{model_name}/{api_ver}: HTTP {resp.status_code} overloaded"
                         if attempt < max_retries - 1:
-                            time.sleep((attempt + 1) * 3)
+                            time.sleep(2) # Shorter wait
                             continue
                         else:
                             break
@@ -748,6 +754,7 @@ CTA Focus / Goal: {cta_focus}
                     try:
                         return json.loads(raw_text)
                     except json.JSONDecodeError:
+
                         import re
                         m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", raw_text, re.DOTALL)
                         if m:
