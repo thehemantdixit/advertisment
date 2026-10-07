@@ -481,7 +481,16 @@ st.markdown("""
 def get_gemini_client(api_key: str):
     try:
         from google import genai
-        return genai.Client(api_key=api_key)
+        # Force v1 instead of v1beta — v1beta has a narrower model availability
+        return genai.Client(api_key=api_key, http_options={"api_version": "v1"})
+    except TypeError:
+        # Older SDK version that doesn't support http_options
+        try:
+            from google import genai
+            return genai.Client(api_key=api_key)
+        except Exception as e:
+            st.error(f"Error initializing Google GenAI Client: {e}")
+            return None
     except Exception as e:
         st.error(f"Error initializing Google GenAI Client: {e}")
         return None
@@ -640,12 +649,10 @@ def generate_ad_campaign(
     target_audience: str,
     platform: str,
     brand_tone: str,
-    cta_focus: str
+    cta_focus: str,
+    api_key: str = ""
 ):
-    if types is not None:
-        genai_types = types
-    else:
-        from google.genai import types as genai_types
+    """Generate ad campaign via direct Gemini REST API (bypasses SDK v1beta model-name issues)."""
 
     system_prompt = """You are an elite Creative Director, Senior Copywriter, and Visual Designer at a world-class advertising agency.
 Your task is to convert raw product information into a high-converting digital advertisement package tailored for a specific platform and target audience.
@@ -694,40 +701,50 @@ Brand Tone / Vibe: {brand_tone}
 CTA Focus / Goal: {cta_focus}
 """
 
-    candidate_models = [
-        "gemini-1.5-flash"
-    ]
+    combined = f"{system_prompt}\n\n{user_prompt}"
+
+    # Use REST API directly — avoids SDK v1beta model-name mismatches entirely
+    candidate_models = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-2.0-flash-lite"]
     last_exception = None
-    max_retries = 5
+    max_retries = 3
 
     for model_name in candidate_models:
+        url = (
+            f"https://generativelanguage.googleapis.com/v1/models/"
+            f"{model_name}:generateContent?key={api_key}"
+        )
+        payload = {
+            "contents": [{"parts": [{"text": combined}]}],
+            "generationConfig": {"temperature": 0.7, "responseMimeType": "application/json"}
+        }
         for attempt in range(max_retries):
             try:
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=[system_prompt, user_prompt],
-                    config=genai_types.GenerateContentConfig(
-                        response_mime_type="application/json",
-                        temperature=0.7,
-                    )
-                )
-                return json.loads(response.text)
-            except Exception as e:
-                last_exception = e
-                err_str = str(e)
-                if "404" in err_str or "NOT_FOUND" in err_str:
-                    break  # skip to next model
-                if "503" in err_str or "UNAVAILABLE" in err_str or "overloaded" in err_str.lower():
+                resp = requests.post(url, json=payload, timeout=30)
+                if resp.status_code == 404:
+                    break  # model not available, try next
+                if resp.status_code == 503:
                     if attempt < max_retries - 1:
-                        wait = (attempt + 1) * 2  # 2s, 4s backoff
-                        time.sleep(wait)
+                        time.sleep((attempt + 1) * 3)
                         continue
                     else:
-                        break  # try next model after exhausting retries
-                raise e
+                        break  # exhausted retries for this model
+                resp.raise_for_status()
+                data = resp.json()
+                text = data["candidates"][0]["content"]["parts"][0]["text"]
+                return json.loads(text)
+            except (json.JSONDecodeError, KeyError) as e:
+                last_exception = e
+                break
+            except requests.RequestException as e:
+                last_exception = e
+                if attempt < max_retries - 1:
+                    time.sleep(2)
+                    continue
+                break
 
     if last_exception:
         raise last_exception
+    raise RuntimeError("All Gemini models failed. Please try again in a moment.")
 
 
 def _load_font(size: int, bold: bool = True):
@@ -1141,7 +1158,8 @@ def main():
                 return
             try:
                 ad_data = generate_ad_campaign(
-                    client, product_name, product_desc, target_audience, platform, brand_tone, cta_focus
+                    client, product_name, product_desc, target_audience, platform, brand_tone, cta_focus,
+                    api_key=gemini_api_key
                 )
                 st.session_state.ad_package = ad_data
             except Exception as e:
